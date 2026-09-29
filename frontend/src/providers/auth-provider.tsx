@@ -199,6 +199,10 @@ export function isAdminUser(user: UserInfo | null): boolean {
   if (!user) return false;
   return (
     user.roleCode === "ADMIN" ||
-    user.permissions?.includes("ADMIN_FULL") === true
+    user.role === "Admin" ||
+    user.roleName === "Admin" ||
+    user.roleCodes?.includes("ADMIN") === true ||
+    user.permissions?.includes("ADMIN_FULL") === true ||
+    user.permissions?.includes("admin") === true
   );
 }

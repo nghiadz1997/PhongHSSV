@@ -162,6 +162,12 @@ export function RouteGuard({
     if (!useDynamicMapping || !user || isLoading) return;
 
     (async () => {
+      if (isAdminUser(user)) {
+        setDynamicAllowed(true);
+        setDynamicCheckDone(true);
+        return;
+      }
+
       const isSensitive =
         pathname === '/system' ||
         pathname.startsWith('/system/') ||

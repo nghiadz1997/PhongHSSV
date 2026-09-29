@@ -57,6 +57,9 @@ services:
       - /app/dist
     ports:
       - "8001:8001"
+    env_file:
+      - path: .env
+        required: false
     environment:
       - NODE_ENV=development
       - PORT=8001
@@ -64,6 +67,10 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - FRONTEND_URL=http://localhost:3000
+      - JWT_SECRET=${JWT_SECRET}
+      - SYSTEM_ADMIN_EMAIL=${SYSTEM_ADMIN_EMAIL}
+      - SYSTEM_ADMIN_USERNAME=${SYSTEM_ADMIN_USERNAME}
+      - SYSTEM_ADMIN_PASSWORD=${SYSTEM_ADMIN_PASSWORD}
     depends_on:
       mongodb:
         condition: service_healthy

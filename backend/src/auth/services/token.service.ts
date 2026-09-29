@@ -89,10 +89,14 @@ export class TokenService {
       expires_at: rotated.expires_at, remember: rotated.remember };
   }
 
-  async revokeAllUserTokens(userId: string) {
+  async revokeAllUserTokens(userId: string, exceptSessionId?: string) {
     // Revoke legacy credentials before upgrading callers can use them.
-    await this.refreshTokenModel.updateMany({ user_id: new Types.ObjectId(userId) }, { $set: { is_revoked: true } });
-    await this.sessionService.revokeUser(userId);
+    const query: any = { user_id: new Types.ObjectId(userId) };
+    if (exceptSessionId && Types.ObjectId.isValid(exceptSessionId)) {
+      query.session_id = { $ne: new Types.ObjectId(exceptSessionId) };
+    }
+    await this.refreshTokenModel.updateMany(query, { $set: { is_revoked: true } });
+    await this.sessionService.revokeUser(userId, exceptSessionId);
   }
 
   async revokeToken(token: string) {

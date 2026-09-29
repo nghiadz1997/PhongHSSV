@@ -78,8 +78,12 @@ export class SessionService {
       .catch(() => this.logger.warn('Session revoked; audit persistence temporarily unavailable'));
   }
 
-  async revokeUser(userId: string) {
-    const families = await this.sessions.find({ user_id: userId, revoked_at: null }).select('_id');
+  async revokeUser(userId: string, exceptSessionId?: string) {
+    const query: any = { user_id: userId, revoked_at: null };
+    if (exceptSessionId && Types.ObjectId.isValid(exceptSessionId)) {
+      query._id = { $ne: new Types.ObjectId(exceptSessionId) };
+    }
+    const families = await this.sessions.find(query).select('_id');
     for (const family of families) await this.revoke(family._id.toString(), 'account_security_event', userId);
   }
 

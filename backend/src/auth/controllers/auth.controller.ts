@@ -600,7 +600,8 @@ export class AuthController {
     @Req() req: any,
   ) {
     const ip = req.ip || req.headers?.['x-forwarded-for'] || '0.0.0.0';
-    return this.authService.updateUser(id, dto, ip);
+    const currentSessionId = req.user?.sessionId;
+    return this.authService.updateUser(id, dto, ip, currentSessionId);
   }
 
   @Delete('users/:id')

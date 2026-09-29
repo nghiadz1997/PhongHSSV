@@ -6,7 +6,9 @@ import {
   OnModuleInit,
   BadRequestException,
   Logger,
+  Optional,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { performance } from 'node:perf_hooks';
@@ -84,6 +86,7 @@ export class AuthService implements OnModuleInit {
     private passwordService: PasswordService,
     private rbacService: RbacService,
     private impersonationService: ImpersonationService,
+    @Optional() private configService?: ConfigService,
   ) {}
 
   async onModuleInit() {
@@ -182,7 +185,14 @@ export class AuthService implements OnModuleInit {
       .findOne({
         $or: [{ email: studentEmail.toLowerCase() }, { user_name: loginKey }],
       })
-      .populate('role')
+      .populate({
+        path: 'role',
+        populate: { path: 'permissions' },
+      })
+      .populate({
+        path: 'roles',
+        populate: { path: 'permissions' },
+      })
       .exec();
 
     if (!user) {
@@ -283,6 +293,9 @@ export class AuthService implements OnModuleInit {
       .findOne({ user_id: user._id })
       .exec();
     const displayName = student ? student.full_name : user.user_name;
+    const roles = getAssignedRoles(user);
+    const roleCodes = roles.map((r: any) => r.role_code);
+    const permissions = getEffectivePermissions(user);
 
     return {
       access_token,
@@ -294,6 +307,10 @@ export class AuthService implements OnModuleInit {
         username: user.user_name,
         display_name: displayName,
         role: role?.name || 'User',
+        roleCode: role?.role_code || 'USER',
+        roles,
+        roleCodes,
+        permissions,
       },
     };
   }
@@ -897,7 +914,7 @@ export class AuthService implements OnModuleInit {
     });
   }
 
-  async updateUser(userId: string, dto: UpdateUserDto, ip: string) {
+  async updateUser(userId: string, dto: UpdateUserDto, ip: string, currentSessionId?: string) {
     if (!Types.ObjectId.isValid(userId)) {
       throw new BadRequestException('ID người dùng không hợp lệ');
     }
@@ -1033,7 +1050,7 @@ export class AuthService implements OnModuleInit {
     }
 
     if (shouldRevokeTokens) {
-      await this.tokenService.revokeAllUserTokens(user._id.toString());
+      await this.tokenService.revokeAllUserTokens(user._id.toString(), currentSessionId);
     }
 
     // Populate role and return updated user (without pw_hash)
@@ -2014,12 +2031,24 @@ export class AuthService implements OnModuleInit {
   }
 
   private async seedSystemAdmin() {
-    const adminEmail = process.env.SYSTEM_ADMIN_EMAIL?.trim().toLowerCase();
-    const adminPassword = process.env.SYSTEM_ADMIN_PASSWORD;
+    const adminEmail = (
+      process.env.SYSTEM_ADMIN_EMAIL ||
+      this.configService?.get<string>('SYSTEM_ADMIN_EMAIL') ||
+      ''
+    )
+      .trim()
+      .toLowerCase();
+    const adminPassword =
+      process.env.SYSTEM_ADMIN_PASSWORD ||
+      this.configService?.get<string>('SYSTEM_ADMIN_PASSWORD');
     const adminUsername =
-      process.env.SYSTEM_ADMIN_USERNAME?.trim() ||
+      (
+        process.env.SYSTEM_ADMIN_USERNAME ||
+        this.configService?.get<string>('SYSTEM_ADMIN_USERNAME') ||
+        ''
+      ).trim() ||
       adminEmail?.split('@')[0] ||
-      'system-admin';
+      'system_admin';
 
     if (!adminEmail && !adminPassword) {
       return;
@@ -2044,11 +2073,23 @@ export class AuthService implements OnModuleInit {
     }
 
     const existingAdmin = await this.userModel
-      .findOne({ email: adminEmail })
+      .findOne({
+        $or: [{ email: adminEmail }, { user_name: adminUsername }],
+      })
       .exec();
 
     if (existingAdmin) {
       let changed = false;
+
+      if (adminUsername && existingAdmin.user_name !== adminUsername) {
+        existingAdmin.user_name = adminUsername;
+        changed = true;
+      }
+
+      if (adminEmail && existingAdmin.email !== adminEmail) {
+        existingAdmin.email = adminEmail;
+        changed = true;
+      }
 
       if (
         !existingAdmin.role ||
@@ -2058,10 +2099,31 @@ export class AuthService implements OnModuleInit {
         changed = true;
       }
 
+      const existingRoles = Array.isArray(existingAdmin.roles)
+        ? existingAdmin.roles.map((r: any) => r.toString())
+        : [];
+      if (!existingRoles.includes(adminRole._id.toString())) {
+        existingAdmin.roles = [adminRole._id];
+        changed = true;
+      }
+
       if (existingAdmin.status !== UserStatus.ACTIVE) {
         existingAdmin.status = UserStatus.ACTIVE;
         existingAdmin.failed_login_attempts = 0;
         existingAdmin.locked_until = null;
+        changed = true;
+      }
+
+      const passwordHash =
+        existingAdmin.pw_hash || (existingAdmin as any).password_hash;
+      const isPasswordValid = passwordHash
+        ? await this.passwordService.comparePassword(adminPassword, passwordHash)
+        : false;
+
+      if (!isPasswordValid) {
+        existingAdmin.pw_hash = await this.passwordService.hashPassword(
+          adminPassword,
+        );
         changed = true;
       }
 
@@ -2081,6 +2143,9 @@ export class AuthService implements OnModuleInit {
       pw_hash,
       status: UserStatus.ACTIVE,
       role: adminRole._id,
+      roles: [adminRole._id],
+      failed_login_attempts: 0,
+      locked_until: null,
     });
 
     console.log('✅ System admin account seeded');
