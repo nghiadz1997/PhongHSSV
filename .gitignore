@@ -69,3 +69,9 @@ backend/test-script.js
 backend/test_path.ts
 backend/test_path2.ts
 backend/test_schema_paths.ts
+
+# Local project guidance and documentation kept out of Git
+/.agents/
+/docs/
+/AGENTS.md
+/antigravity-operating-contract.md
