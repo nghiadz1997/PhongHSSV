@@ -28,6 +28,16 @@ export class RoomMeterReadingItemDto {
   water_reading: number;
 
   @IsOptional()
+  @IsNumber()
+  @Min(0)
+  previous_electricity_reading?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  previous_water_reading?: number;
+
+  @IsOptional()
   @IsBoolean()
   is_exempt?: boolean;
 

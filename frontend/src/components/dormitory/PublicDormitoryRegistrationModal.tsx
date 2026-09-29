@@ -10,7 +10,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { CustomCalendar } from '@/components/calendar/CustomCalendar';
 
-type FormState = Pick<PublicDormitoryRegistrationInput, 'full_name' | 'date_of_birth' | 'phone_number' | 'room_type' | 'notes'> & { qr_room_id?: string; gender: '' | PublicDormitoryRegistrationInput['gender'] };
+type FormState = {
+  full_name: string;
+  student_code?: string;
+  date_of_birth: string;
+  gender: '' | PublicDormitoryRegistrationInput['gender'];
+  phone_number: string;
+  room_type: 'Thường' | 'Máy lạnh';
+  notes?: string;
+  qr_room_id?: string;
+  applicant_profile: ApplicantProfile;
+};
 
 export const emptyApplicantProfile = (): ApplicantProfile => ({ ethnicity: '', religion: '', citizen_id_number: '', citizen_id_issue_date: '', citizen_id_issue_place: '', permanent_address: '', priority_certificate_details: '', father: { full_name: '', age: '', permanent_address: '', contact_address: '', occupation: '', phone_number: '' }, mother: { full_name: '', age: '', permanent_address: '', contact_address: '', occupation: '', phone_number: '' } });
 export const compactApplicantProfile = (profile: ApplicantProfile): ApplicantProfile | undefined => {
@@ -19,13 +29,23 @@ export const compactApplicantProfile = (profile: ApplicantProfile): ApplicantPro
   const father = compactParent(profile.father); const mother = compactParent(profile.mother);
   return Object.keys(fields).length || father || mother ? { ...fields, ...(father ? { father } : {}), ...(mother ? { mother } : {}) } : undefined;
 };
-const emptyForm: FormState = { full_name: '', date_of_birth: '', gender: '', phone_number: '', room_type: 'Thường', notes: '' };
+const emptyForm: FormState = { full_name: '', student_code: '', date_of_birth: '', gender: '', phone_number: '', room_type: 'Thường', notes: '', applicant_profile: emptyApplicantProfile() };
 
 const toDateValue = (date: Date | null) => date ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}` : '';
 const dateLabel = (value: string) => value ? new Date(`${value}T00:00:00`).toLocaleDateString('vi-VN') : 'Chọn ngày sinh';
 const issueDateLabel = (value: string) => value ? new Date(`${value}T00:00:00`).toLocaleDateString('vi-VN') : 'Chọn ngày cấp';
 export const publicRoomTypeForGender = (gender: FormState['gender'], requested: FormState['room_type'] = 'Thường') => gender === 'Female' ? requested : 'Thường';
-export const buildPublicRegistrationPayload = (form: FormState): PublicDormitoryRegistrationInput => ({ full_name: form.full_name.trim(), date_of_birth: form.date_of_birth, gender: form.gender as PublicDormitoryRegistrationInput['gender'], phone_number: form.phone_number.trim(), notes: form.notes?.trim() || undefined, room_type: publicRoomTypeForGender(form.gender, form.room_type), qr_room_id: form.qr_room_id });
+export const buildPublicRegistrationPayload = (form: FormState): PublicDormitoryRegistrationInput => ({
+  full_name: form.full_name.trim(),
+  student_code: form.student_code?.trim() || undefined,
+  date_of_birth: form.date_of_birth,
+  gender: form.gender as PublicDormitoryRegistrationInput['gender'],
+  phone_number: form.phone_number.trim(),
+  notes: form.notes?.trim() || undefined,
+  room_type: publicRoomTypeForGender(form.gender, form.room_type),
+  qr_room_id: form.qr_room_id,
+  applicant_profile: compactApplicantProfile(form.applicant_profile),
+});
 
 export function ApplicantProfileFields({ value, onChange, className = '' }: { value: ApplicantProfile; onChange: (value: ApplicantProfile) => void; className?: string }) {
   const [issueDateCalendarOpen, setIssueDateCalendarOpen] = useState(false);
@@ -81,19 +101,15 @@ export function PublicDormitoryRegistrationModal({ qrRoomId, open = true, onOpen
         {successCode ? <div className="py-8 text-center"><CheckCircle2 className="mx-auto mb-4 h-14 w-14 text-emerald-600" /><DialogTitle className="text-xl font-black text-[#1E293B]">Đăng ký thành công</DialogTitle><p className="mt-2 text-sm text-slate-600">Mã đăng ký của bạn</p><p className="my-4 rounded-xl bg-white/70 px-4 py-3 font-mono text-xl font-black text-blue-700">{successCode}</p><p className="text-xs text-slate-500">Vui lòng lưu mã để tra cứu với bộ phận quản lý KTX.</p></div> : <>
            <DialogHeader className="mb-4 border-b border-white/60 pb-3"><DialogTitle className="flex flex-wrap items-center gap-2 pr-8 text-sm font-black uppercase leading-snug tracking-wider text-[#1E293B]"><span className="min-w-0">Đăng ký KTX</span>{semester && <span className="break-words text-[11px] font-semibold normal-case text-[#64748B]">{semester.semester_name}</span>}</DialogTitle></DialogHeader>
           <form onSubmit={submit} className="space-y-4">
-            <div className="grid gap-4 lg:grid-cols-2">
-              <section className="space-y-4 rounded-2xl border border-white/80 bg-white/60 p-4 shadow-sm">
-                 <Input label="Họ và tên" required value={form.full_name} onChange={e => setField('full_name', e.target.value)} placeholder="Tìm sinh viên hoặc nhập họ tên" />
-                <div className="grid gap-4 sm:grid-cols-2">
-                   <div className="space-y-1.5"><label className="flex items-center gap-1 px-1 text-[13px] font-bold text-[#1E293B]">Ngày sinh <span className="text-red-500">*</span></label><Popover open={calendarOpen} onOpenChange={setCalendarOpen}><PopoverTrigger asChild><Button type="button" variant="outline" aria-label="Chọn ngày sinh" className="h-10 w-full justify-between rounded-xl border-white/90 bg-white/70 px-3 text-sm font-normal"><span className="truncate">{dateLabel(form.date_of_birth)}</span><Calendar size={15} aria-hidden="true" /></Button></PopoverTrigger><PopoverContent className="z-[100] w-auto overflow-hidden border-none bg-transparent p-0 shadow-none" align="start"><CustomCalendar startDate={form.date_of_birth ? new Date(`${form.date_of_birth}T00:00:00`) : null} endDate={null} onRangeSelect={(start) => setField('date_of_birth', toDateValue(start))} onRangeConfirm={(start) => setField('date_of_birth', toDateValue(start))} onCancel={() => setCalendarOpen(false)} onConfirm={() => setCalendarOpen(false)} /></PopoverContent></Popover></div>
-                  <div className="space-y-1.5"><label className="flex items-center gap-1 px-1 text-[13px] font-bold text-[#1E293B]">Giới tính <span className="text-red-500">*</span></label><Select value={form.gender} onValueChange={value => setForm(current => ({ ...current, gender: value as FormState['gender'], room_type: value === 'Female' ? current.room_type : 'Thường' }))}><SelectTrigger aria-label="Giới tính" className="w-full bg-white/70"><SelectValue placeholder="Chọn giới tính" /></SelectTrigger><SelectContent className="w-[calc(100vw-2rem)] max-w-[280px]"><SelectItem value="Male">Nam</SelectItem><SelectItem value="Female">Nữ</SelectItem><SelectItem value="Other">Khác</SelectItem></SelectContent></Select></div>
-                </div>
-                <Input label="Số điện thoại" required type="tel" value={form.phone_number} onChange={e => setField('phone_number', e.target.value)} placeholder="Nhập số điện thoại" />
-              </section>
-              <section className="space-y-4 rounded-2xl border border-white/80 bg-white/60 p-4 shadow-sm">
-                <div className="space-y-1.5"><label className="px-1 text-[13px] font-bold text-[#1E293B]">Loại phòng</label><Select value={form.room_type} disabled={form.gender !== 'Female'} onValueChange={value => setField('room_type', value as FormState['room_type'])}><SelectTrigger aria-label="Loại phòng" className="w-full bg-white/70"><SelectValue /></SelectTrigger><SelectContent className="w-[calc(100vw-2rem)] max-w-[280px]"><SelectItem value="Thường">Thường</SelectItem><SelectItem value="Máy lạnh">Máy lạnh (Ưu tiên cho nữ)</SelectItem></SelectContent></Select></div>
-                <Input label="Ghi chú" multiline rows={3} value={form.notes} onChange={e => setField('notes', e.target.value)} />
-              </section>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Input label="Họ và tên" required value={form.full_name} onChange={e => setField('full_name', e.target.value)} placeholder="Nhập họ và tên" />
+              <Input label="Mã SV" value={form.student_code || ''} onChange={e => setField('student_code', e.target.value)} placeholder="Nhập mã sinh viên (nếu có)" />
+              <div className="space-y-1.5"><label className="flex items-center gap-1 px-1 text-[13px] font-bold text-[#1E293B]">Ngày sinh <span className="text-red-500">*</span></label><Popover open={calendarOpen} onOpenChange={setCalendarOpen}><PopoverTrigger asChild><Button type="button" variant="outline" aria-label="Chọn ngày sinh" className="h-10 w-full justify-between rounded-xl border-white/90 bg-white/70 px-3 text-sm font-normal"><span className="truncate">{dateLabel(form.date_of_birth)}</span><Calendar size={15} aria-hidden="true" /></Button></PopoverTrigger><PopoverContent className="z-[100] w-auto overflow-hidden border-none bg-transparent p-0 shadow-none" align="start"><CustomCalendar startDate={form.date_of_birth ? new Date(`${form.date_of_birth}T00:00:00`) : null} endDate={null} onRangeSelect={(start) => setField('date_of_birth', toDateValue(start))} onRangeConfirm={(start) => setField('date_of_birth', toDateValue(start))} onCancel={() => setCalendarOpen(false)} onConfirm={() => setCalendarOpen(false)} /></PopoverContent></Popover></div>
+              <div className="space-y-1.5"><label className="flex items-center gap-1 px-1 text-[13px] font-bold text-[#1E293B]">Giới tính <span className="text-red-500">*</span></label><Select value={form.gender} onValueChange={value => setForm(current => ({ ...current, gender: value as FormState['gender'], room_type: value === 'Female' ? current.room_type : 'Thường' }))}><SelectTrigger aria-label="Giới tính" className="w-full bg-white/70"><SelectValue placeholder="Chọn giới tính" /></SelectTrigger><SelectContent className="w-[calc(100vw-2rem)] max-w-[280px]"><SelectItem value="Male">Nam</SelectItem><SelectItem value="Female">Nữ</SelectItem><SelectItem value="Other">Khác</SelectItem></SelectContent></Select></div>
+              <Input label="Số điện thoại" required type="tel" value={form.phone_number} onChange={e => setField('phone_number', e.target.value)} placeholder="Nhập số điện thoại" />
+              <div className="space-y-1.5"><label className="px-1 text-[13px] font-bold text-[#1E293B]">Loại phòng</label><Select value={form.room_type} disabled={form.gender !== 'Female'} onValueChange={value => setField('room_type', value as FormState['room_type'])}><SelectTrigger aria-label="Loại phòng" className="w-full bg-white/70"><SelectValue /></SelectTrigger><SelectContent className="w-[calc(100vw-2rem)] max-w-[280px]"><SelectItem value="Thường">Thường</SelectItem><SelectItem value="Máy lạnh">Máy lạnh (Ưu tiên cho nữ)</SelectItem></SelectContent></Select></div>
+              <Input label="Ghi chú" multiline rows={3} value={form.notes || ''} onChange={e => setField('notes', e.target.value)} placeholder="Nhập ghi chú (nếu có)" containerClassName="sm:col-span-2" />
+              <ApplicantProfileFields value={form.applicant_profile} onChange={value => setField('applicant_profile', value)} className="sm:col-span-2" />
             </div>
              {(error || semesterError) && <p role="alert" aria-live="polite" className="text-sm text-red-600">{error || semesterError}</p>}
              <DialogFooter className="mt-2 gap-2 border-t border-white/50 pt-4 sm:gap-0"><Button type="button" variant="outline" onClick={() => onOpenChange?.(false)} disabled={saving} className="w-full sm:w-auto">Hủy</Button><Button type="submit" disabled={saving || !semester || Boolean(semesterError)} className="w-full sm:w-auto">{saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Đang gửi…</> : 'Gửi đăng ký'}</Button></DialogFooter>

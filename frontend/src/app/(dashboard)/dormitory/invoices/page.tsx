@@ -1073,9 +1073,16 @@ export default function InvoicesPage() {
         header: 'Tiền điện',
         className: 'w-[150px] min-w-[150px] text-right',
         render: (_, inv) => (
-          <span className="text-right text-[#1E293B] font-medium block">
-            {formatMoney(inv.electricity?.amount)}
-          </span>
+          <div className="text-right flex flex-col items-end justify-center">
+            <span className="text-[#1E293B] font-medium block">
+              {formatMoney(inv.electricity?.amount)}
+            </span>
+            {inv.electricity && (inv.electricity.current_reading !== undefined || inv.electricity.consumption !== undefined) && (
+              <span className="text-[11px] text-[#64748B] block">
+                {inv.electricity.previous_reading ?? 0} &rarr; {inv.electricity.current_reading ?? 0} ({inv.electricity.consumption ?? 0} kWh)
+              </span>
+            )}
+          </div>
         ),
       },
       {
@@ -1083,9 +1090,16 @@ export default function InvoicesPage() {
         header: 'Tiền nước',
         className: 'w-[150px] min-w-[150px] text-right',
         render: (_, inv) => (
-          <span className="text-right text-[#1E293B] font-medium block">
-            {formatMoney(inv.water?.amount)}
-          </span>
+          <div className="text-right flex flex-col items-end justify-center">
+            <span className="text-[#1E293B] font-medium block">
+              {formatMoney(inv.water?.amount)}
+            </span>
+            {inv.water && (inv.water.current_reading !== undefined || inv.water.consumption !== undefined) && (
+              <span className="text-[11px] text-[#64748B] block">
+                {inv.water.previous_reading ?? 0} &rarr; {inv.water.current_reading ?? 0} ({inv.water.consumption ?? 0} m³)
+              </span>
+            )}
+          </div>
         ),
       },
       {
@@ -1967,14 +1981,51 @@ export default function InvoicesPage() {
                   </div>
                 </div>
 
-                {/* 2. Thông tin: Chỉ cần để Kỳ thu và Tổng tiền */}
+                {/* 2. Thông tin: Phòng, Kỳ thu, Chi tiết điện nước & Tổng tiền */}
                 <div className="rounded-2xl border border-white/70 bg-white/50 backdrop-blur-sm p-4 space-y-3 shadow-2xs">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-slate-500">Phòng</span>
+                    <span className="font-bold text-slate-800 text-sm">
+                      {typeof payingInvoice.room_id === 'object' && payingInvoice.room_id
+                        ? payingInvoice.room_id.room_name || payingInvoice.room_id.room_code || '—'
+                        : '—'}
+                    </span>
+                  </div>
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-semibold text-slate-500">Kỳ thu</span>
                     <span className="font-bold text-slate-800 text-sm">
                       {formatBillingMonth(payingInvoice.billing_month, payingInvoice.billing_period)}
                     </span>
                   </div>
+
+                  {/* Chi tiết điện */}
+                  {payingInvoice.electricity && (
+                    <div className="border border-amber-500/20 bg-amber-500/5 rounded-xl p-2.5 text-xs space-y-1">
+                      <div className="flex items-center justify-between font-semibold text-amber-800">
+                        <span className="flex items-center gap-1"><Zap size={13} className="text-amber-600" /> Tiền điện</span>
+                        <span>{formatMoney(payingInvoice.electricity.amount)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] text-slate-600">
+                        <span>Chỉ số: {payingInvoice.electricity.previous_reading ?? 0} &rarr; {payingInvoice.electricity.current_reading ?? 0}</span>
+                        <span>Tiêu thụ: {payingInvoice.electricity.consumption ?? 0} kWh</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Chi tiết nước */}
+                  {payingInvoice.water && (
+                    <div className="border border-sky-500/20 bg-sky-500/5 rounded-xl p-2.5 text-xs space-y-1">
+                      <div className="flex items-center justify-between font-semibold text-sky-800">
+                        <span className="flex items-center gap-1"><Droplets size={13} className="text-sky-600" /> Tiền nước</span>
+                        <span>{formatMoney(payingInvoice.water.amount)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] text-slate-600">
+                        <span>Chỉ số: {payingInvoice.water.previous_reading ?? 0} &rarr; {payingInvoice.water.current_reading ?? 0}</span>
+                        <span>Tiêu thụ: {payingInvoice.water.consumption ?? 0} m³</span>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="border-t border-white/60 pt-2.5 flex items-center justify-between">
                     <span className="font-bold text-slate-700 text-xs">Tổng tiền</span>
                     <div className="flex items-center gap-2">

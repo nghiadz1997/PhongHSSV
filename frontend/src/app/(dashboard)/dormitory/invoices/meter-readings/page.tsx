@@ -12,6 +12,8 @@ import {
   Building as BuildingIcon,
   Check,
   Calendar as CalendarIcon,
+  Search,
+  X,
 } from 'lucide-react';
 import {
   dormitoryApi,
@@ -39,6 +41,8 @@ function formatBillingMonth(billingMonth?: string): string {
 interface CardState {
   electricity_reading: string;
   water_reading: string;
+  previous_electricity_reading?: string;
+  previous_water_reading?: string;
   is_exempt?: boolean;
   notes?: string;
   saving?: boolean;
@@ -56,7 +60,8 @@ export default function MeterReadingsPage() {
   const canCreateInvoice =
     hasPermission('DORM_INVOICE_CREATE') ||
     hasPermission('admin') ||
-    hasPermission('ADMIN_FULL');
+    hasPermission('ADMIN_FULL') ||
+    canReadInvoice;
 
   const defaultMonth = useMemo(() => {
     const now = new Date();
@@ -66,14 +71,26 @@ export default function MeterReadingsPage() {
   const [billingMonth, setBillingMonth] = useState(defaultMonth);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const [config, setConfig] = useState<UtilityConfig | null>(null);
   const [rooms, setRooms] = useState<RoomMeterReadingItem[]>([]);
   const [cardsState, setCardsState] = useState<Record<string, CardState>>({});
 
+  const filteredRooms = useMemo(() => {
+    if (!searchTerm.trim()) return rooms;
+    const term = searchTerm.trim().toLowerCase();
+    return rooms.filter((r) => {
+      const code = (r.room?.room_code || '').toLowerCase();
+      const name = (r.room?.room_name || '').toLowerCase();
+      const invoiceCode = (r.invoice_code || '').toLowerCase();
+      return code.includes(term) || name.includes(term) || invoiceCode.includes(term);
+    });
+  }, [rooms, searchTerm]);
+
   const debounceTimers = useRef<Record<string, NodeJS.Timeout>>({});
   const inFlightSaves = useRef<Record<string, boolean>>({});
-  const pendingSaves = useRef<Record<string, { elec: number; water: number; isExempt?: boolean; notes?: string }>>({});
+  const pendingSaves = useRef<Record<string, { elec: number; water: number; prevElec?: number; prevWater?: number; isExempt?: boolean; notes?: string }>>({});
 
   // Cleanup timers on unmount
   useEffect(() => {
@@ -103,6 +120,14 @@ export default function MeterReadingsPage() {
             r.current_readings?.water !== undefined
               ? String(r.current_readings.water)
               : '',
+          previous_electricity_reading:
+            r.previous_readings?.electricity !== undefined
+              ? String(r.previous_readings.electricity)
+              : '0',
+          previous_water_reading:
+            r.previous_readings?.water !== undefined
+              ? String(r.previous_readings.water)
+              : '0',
           is_exempt: Boolean(r.is_exempt),
           notes: r.notes || '',
           dirty: false,
@@ -141,8 +166,17 @@ export default function MeterReadingsPage() {
     const occupantCount = room.occupant_count || 0;
     const isExempt = state?.is_exempt ?? room.is_exempt ?? false;
 
-    const prevElec = room.previous_readings?.electricity || 0;
-    const prevWater = room.previous_readings?.water || 0;
+    const prevElecStr =
+      state?.previous_electricity_reading !== undefined
+        ? state.previous_electricity_reading
+        : (room.previous_readings?.electricity !== undefined ? String(room.previous_readings.electricity) : '0');
+    const prevWaterStr =
+      state?.previous_water_reading !== undefined
+        ? state.previous_water_reading
+        : (room.previous_readings?.water !== undefined ? String(room.previous_readings.water) : '0');
+
+    const prevElec = parseFloat(prevElecStr) || 0;
+    const prevWater = parseFloat(prevWaterStr) || 0;
 
     const elecQuotaPer =
       room.effective_tariffs?.electricity?.quota_per_person ??
@@ -183,8 +217,8 @@ export default function MeterReadingsPage() {
     const currElec = parseFloat(currElecStr);
     const currWater = parseFloat(currWaterStr);
 
-    const elecInvalid = hasElec && (isNaN(currElec) || currElec < prevElec || currElec < 0);
-    const waterInvalid = hasWater && (isNaN(currWater) || currWater < prevWater || currWater < 0);
+    const elecInvalid = hasElec && (isNaN(currElec) || currElec < prevElec || currElec < 0 || prevElec < 0);
+    const waterInvalid = hasWater && (isNaN(currWater) || currWater < prevWater || currWater < 0 || prevWater < 0);
 
     const elecConsumption = hasElec && !elecInvalid ? Math.max(0, currElec - prevElec) : 0;
     const elecQuotaTotal = occupantCount * elecQuotaPer;
@@ -230,11 +264,19 @@ export default function MeterReadingsPage() {
 
   // Hàm thực hiện tự động lưu chỉ số phòng
   const triggerAutoSave = useCallback(
-    async (roomId: string, elec: number, water: number, isExempt?: boolean, notes?: string) => {
+    async (
+      roomId: string,
+      elec: number,
+      water: number,
+      prevElec?: number,
+      prevWater?: number,
+      isExempt?: boolean,
+      notes?: string,
+    ) => {
       const room = rooms.find((r) => r.room_id === roomId);
       if (!room) return;
       if (inFlightSaves.current[roomId]) {
-        pendingSaves.current[roomId] = { elec, water, isExempt, notes };
+        pendingSaves.current[roomId] = { elec, water, prevElec, prevWater, isExempt, notes };
         return;
       }
       inFlightSaves.current[roomId] = true;
@@ -252,6 +294,8 @@ export default function MeterReadingsPage() {
               room_id: roomId,
               electricity_reading: elec,
               water_reading: water,
+              previous_electricity_reading: prevElec,
+              previous_water_reading: prevWater,
               is_exempt: isExempt,
               notes: notes,
             },
@@ -272,6 +316,10 @@ export default function MeterReadingsPage() {
                     invoice_status: resultItem.invoice?.status,
                     total_amount: resultItem.invoice?.total_amount,
                     is_exempt: resultItem.invoice?.is_exempt,
+                    previous_readings: {
+                      electricity: prevElec ?? r.previous_readings?.electricity ?? 0,
+                      water: prevWater ?? r.previous_readings?.water ?? 0,
+                    },
                     current_readings: {
                       electricity: elec,
                       water: water,
@@ -317,7 +365,15 @@ export default function MeterReadingsPage() {
         const pending = pendingSaves.current[roomId];
         delete pendingSaves.current[roomId];
         if (pending) {
-          void triggerAutoSave(roomId, pending.elec, pending.water, pending.isExempt, pending.notes);
+          void triggerAutoSave(
+            roomId,
+            pending.elec,
+            pending.water,
+            pending.prevElec,
+            pending.prevWater,
+            pending.isExempt,
+            pending.notes,
+          );
         }
       }
     },
@@ -327,14 +383,21 @@ export default function MeterReadingsPage() {
   // Cập nhật giá trị nhập của một card & kích hoạt auto-save (debounce)
   function handleInputChange(
     roomId: string,
-    field: 'electricity_reading' | 'water_reading' | 'notes' | 'is_exempt',
+    field:
+      | 'electricity_reading'
+      | 'water_reading'
+      | 'previous_electricity_reading'
+      | 'previous_water_reading'
+      | 'notes'
+      | 'is_exempt',
     value: any,
   ) {
-    if (!canCreateInvoice) return;
     setCardsState((prev) => {
       const current = prev[roomId] || {
         electricity_reading: '',
         water_reading: '',
+        previous_electricity_reading: '0',
+        previous_water_reading: '0',
         dirty: false,
       };
       const nextState = {
@@ -345,13 +408,27 @@ export default function MeterReadingsPage() {
       };
 
       const room = rooms.find((r) => r.room_id === roomId);
-      if (room && (field === 'electricity_reading' || field === 'water_reading')) {
-        const prevElec = room.previous_readings?.electricity || 0;
-        const prevWater = room.previous_readings?.water || 0;
+      if (
+        room &&
+        (field === 'electricity_reading' ||
+          field === 'water_reading' ||
+          field === 'previous_electricity_reading' ||
+          field === 'previous_water_reading')
+      ) {
+        const prevElecStr =
+          field === 'previous_electricity_reading'
+            ? value
+            : nextState.previous_electricity_reading ?? String(room.previous_readings?.electricity ?? 0);
+        const prevWaterStr =
+          field === 'previous_water_reading'
+            ? value
+            : nextState.previous_water_reading ?? String(room.previous_readings?.water ?? 0);
         const currElecStr = field === 'electricity_reading' ? value : nextState.electricity_reading;
         const currWaterStr = field === 'water_reading' ? value : nextState.water_reading;
 
         if (currElecStr !== '' && currWaterStr !== '') {
+          const prevElec = parseFloat(prevElecStr) || 0;
+          const prevWater = parseFloat(prevWaterStr) || 0;
           const currElec = parseFloat(currElecStr);
           const currWater = parseFloat(currWaterStr);
           if (
@@ -360,13 +437,23 @@ export default function MeterReadingsPage() {
             currElec >= prevElec &&
             currWater >= prevWater &&
             currElec >= 0 &&
-            currWater >= 0
+            currWater >= 0 &&
+            prevElec >= 0 &&
+            prevWater >= 0
           ) {
             if (debounceTimers.current[roomId]) {
               clearTimeout(debounceTimers.current[roomId]);
             }
             debounceTimers.current[roomId] = setTimeout(() => {
-              triggerAutoSave(roomId, currElec, currWater, nextState.is_exempt, nextState.notes);
+              triggerAutoSave(
+                roomId,
+                currElec,
+                currWater,
+                prevElec,
+                prevWater,
+                nextState.is_exempt,
+                nextState.notes,
+              );
             }, 800);
           }
         }
@@ -381,17 +468,24 @@ export default function MeterReadingsPage() {
 
   // Kích hoạt auto-save ngay khi rời ô nhập (onBlur)
   function handleInputBlur(roomId: string) {
-    if (!canCreateInvoice) return;
     const room = rooms.find((r) => r.room_id === roomId);
     const state = cardsState[roomId];
     if (!room || !state || !state.dirty) return;
 
-    const prevElec = room.previous_readings?.electricity || 0;
-    const prevWater = room.previous_readings?.water || 0;
+    const prevElecStr =
+      state.previous_electricity_reading !== undefined
+        ? state.previous_electricity_reading
+        : String(room.previous_readings?.electricity ?? 0);
+    const prevWaterStr =
+      state.previous_water_reading !== undefined
+        ? state.previous_water_reading
+        : String(room.previous_readings?.water ?? 0);
     const currElecStr = state.electricity_reading;
     const currWaterStr = state.water_reading;
 
     if (currElecStr !== '' && currWaterStr !== '') {
+      const prevElec = parseFloat(prevElecStr) || 0;
+      const prevWater = parseFloat(prevWaterStr) || 0;
       const currElec = parseFloat(currElecStr);
       const currWater = parseFloat(currWaterStr);
       if (
@@ -400,13 +494,23 @@ export default function MeterReadingsPage() {
         currElec >= prevElec &&
         currWater >= prevWater &&
         currElec >= 0 &&
-        currWater >= 0
+        currWater >= 0 &&
+        prevElec >= 0 &&
+        prevWater >= 0
       ) {
         if (debounceTimers.current[roomId]) {
           clearTimeout(debounceTimers.current[roomId]);
           delete debounceTimers.current[roomId];
         }
-        triggerAutoSave(roomId, currElec, currWater, state.is_exempt, state.notes);
+        triggerAutoSave(
+          roomId,
+          currElec,
+          currWater,
+          prevElec,
+          prevWater,
+          state.is_exempt,
+          state.notes,
+        );
       }
     }
   }
@@ -452,8 +556,32 @@ export default function MeterReadingsPage() {
             </h1>
           </div>
 
-          {/* Chọn kỳ thu & Tải lại */}
-          <div className="flex items-center gap-3">
+          {/* Tìm kiếm phòng & Chọn kỳ thu & Tải lại */}
+          <div className="flex items-center flex-wrap gap-2.5 sm:gap-3">
+            {/* Thanh tìm kiếm theo tên phòng / số phòng */}
+            <div className="relative w-full sm:w-64">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#64748B] pointer-events-none" />
+              <input
+                type="text"
+                aria-label="Tìm kiếm phòng"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Tìm tên phòng, số phòng..."
+                className="w-full pl-9 pr-8 py-1.5 rounded-xl bg-white/50 backdrop-blur-sm border border-white/70 text-sm text-[#1E293B] placeholder:text-[#64748B]/60 focus:outline-none focus:ring-2 focus:ring-[#1A73E8]/30 focus:bg-white/80 transition-all duration-150 font-medium"
+              />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                  title="Xóa tìm kiếm"
+                  aria-label="Xóa tìm kiếm"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+
             <div className="flex items-center gap-2">
               <label className="text-xs font-semibold text-[#1E293B] whitespace-nowrap">
                 Kỳ thu:
@@ -505,6 +633,11 @@ export default function MeterReadingsPage() {
           <div className="flex items-center justify-between text-xs">
             <span className="font-semibold text-[#1E293B]">
               Tiến độ: {recordedCount} / {totalCount} phòng ({progressPercent}%)
+              {searchTerm.trim() && (
+                <span className="ml-2 font-normal text-[#1A73E8]">
+                  (Khớp tìm kiếm: {filteredRooms.length} phòng)
+                </span>
+              )}
             </span>
             <span className="font-medium text-[#64748B]">
               {progressPercent === 100 ? 'Đã hoàn thành' : `Còn ${totalCount - recordedCount} phòng`}
@@ -531,13 +664,15 @@ export default function MeterReadingsPage() {
               </div>
             </div>
           ))
-        ) : rooms.length === 0 ? (
+        ) : filteredRooms.length === 0 ? (
           <div className="rounded-2xl border border-white/75 bg-white/45 p-12 text-center text-[#64748B] shadow-sm shadow-slate-300/30 backdrop-blur-md">
             <BuildingIcon size={40} className="mx-auto mb-2 opacity-30" />
-            <p className="text-sm font-medium">Không tìm thấy phòng nào trong hệ thống</p>
+            <p className="text-sm font-medium">
+              {searchTerm.trim() ? `Không tìm thấy phòng nào khớp với "${searchTerm}"` : 'Không tìm thấy phòng nào trong hệ thống'}
+            </p>
           </div>
         ) : (
-          rooms.map((room) => {
+          filteredRooms.map((room) => {
             const cardState = cardsState[room.room_id] || {
               electricity_reading: '',
               water_reading: '',
@@ -617,14 +752,20 @@ export default function MeterReadingsPage() {
 
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-[11px] font-medium text-[#64748B] mb-1">
+                        <label className="block text-[11px] font-bold text-[#1E293B] mb-1">
                           Chỉ số cũ (kWh)
                         </label>
                         <input
                           type="number"
-                          disabled
-                          value={preview.prevElec}
-                          className="w-full px-2.5 py-1.5 rounded-xl border border-slate-200/80 text-sm bg-slate-100/80 text-[#64748B] cursor-not-allowed font-medium"
+                          min="0"
+                          aria-label={`Chỉ số cũ điện ${roomName}`}
+                          placeholder="Số điện cũ"
+                          value={cardState.previous_electricity_reading ?? ''}
+                          onChange={(e) =>
+                            handleInputChange(room.room_id, 'previous_electricity_reading', e.target.value)
+                          }
+                          onBlur={() => handleInputBlur(room.room_id)}
+                          className="w-full px-2.5 py-1.5 rounded-xl border border-slate-200/80 text-sm text-[#1E293B] bg-white/80 font-medium focus:outline-none focus:ring-2 focus:ring-[#1A73E8]/30 transition-all duration-150"
                         />
                       </div>
 
@@ -635,17 +776,16 @@ export default function MeterReadingsPage() {
                         <input
                           type="number"
                           min="0"
-                          disabled={!canCreateInvoice}
                           aria-label={`Số điện mới ${roomName}`}
                           placeholder="Nhập số mới"
-                          value={cardState.electricity_reading}
+                          value={cardState.electricity_reading ?? ''}
                           onChange={(e) =>
                             handleInputChange(room.room_id, 'electricity_reading', e.target.value)
                           }
                           onBlur={() => handleInputBlur(room.room_id)}
                           className={`w-full px-2.5 py-1.5 rounded-xl border text-sm text-[#1E293B] bg-white/80 font-medium focus:outline-none transition-all duration-150 ${
                             preview.elecInvalid ? 'border-red-500 ring-1 ring-red-400' : 'border-slate-200/80 focus:ring-2 focus:ring-[#1A73E8]/30'
-                          } ${!canCreateInvoice ? 'cursor-not-allowed opacity-60' : ''}`}
+                          }`}
                         />
                       </div>
                     </div>
@@ -689,14 +829,20 @@ export default function MeterReadingsPage() {
 
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-[11px] font-medium text-[#64748B] mb-1">
+                        <label className="block text-[11px] font-bold text-[#1E293B] mb-1">
                           Chỉ số cũ (m³)
                         </label>
                         <input
                           type="number"
-                          disabled
-                          value={preview.prevWater}
-                          className="w-full px-2.5 py-1.5 rounded-xl border border-slate-200/80 text-sm bg-slate-100/80 text-[#64748B] cursor-not-allowed font-medium"
+                          min="0"
+                          aria-label={`Chỉ số cũ nước ${roomName}`}
+                          placeholder="Số nước cũ"
+                          value={cardState.previous_water_reading ?? ''}
+                          onChange={(e) =>
+                            handleInputChange(room.room_id, 'previous_water_reading', e.target.value)
+                          }
+                          onBlur={() => handleInputBlur(room.room_id)}
+                          className="w-full px-2.5 py-1.5 rounded-xl border border-slate-200/80 text-sm text-[#1E293B] bg-white/80 font-medium focus:outline-none focus:ring-2 focus:ring-[#1A73E8]/30 transition-all duration-150"
                         />
                       </div>
 
@@ -707,17 +853,16 @@ export default function MeterReadingsPage() {
                         <input
                           type="number"
                           min="0"
-                          disabled={!canCreateInvoice}
                           aria-label={`Số nước mới ${roomName}`}
                           placeholder="Nhập số mới"
-                          value={cardState.water_reading}
+                          value={cardState.water_reading ?? ''}
                           onChange={(e) =>
                             handleInputChange(room.room_id, 'water_reading', e.target.value)
                           }
                           onBlur={() => handleInputBlur(room.room_id)}
                           className={`w-full px-2.5 py-1.5 rounded-xl border text-sm text-[#1E293B] bg-white/80 font-medium focus:outline-none transition-all duration-150 ${
                             preview.waterInvalid ? 'border-red-500 ring-1 ring-red-400' : 'border-slate-200/80 focus:ring-2 focus:ring-[#1A73E8]/30'
-                          } ${!canCreateInvoice ? 'cursor-not-allowed opacity-60' : ''}`}
+                          }`}
                         />
                       </div>
                     </div>

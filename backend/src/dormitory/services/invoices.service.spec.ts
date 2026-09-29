@@ -1149,6 +1149,43 @@ describe('InvoicesService', () => {
       expect(saved).toHaveBeenCalled();
     });
 
+    it('calculates invoice using user-provided previous readings when specified', async () => {
+      const { service, saved, invoiceModel } = setup();
+
+      invoiceModel.findOne.mockReturnValueOnce(query(null)); // no existing invoice
+      invoiceModel.findOne.mockReturnValueOnce(
+        query({
+          electricity: { current_reading: 100 },
+          water: { current_reading: 10 },
+        }),
+      );
+
+      const result = await service.saveBulkMeterReadings(
+        {
+          billing_month: '2026-03',
+          readings: [
+            {
+              room_id: roomId,
+              electricity_reading: 150,
+              water_reading: 20,
+              previous_electricity_reading: 110, // consumption 40, quota 30, excess 10 * 2500 = 25,000
+              previous_water_reading: 15, // consumption 5, quota 8, excess 0 * 10000 = 0
+            },
+          ],
+        },
+        { userId: 'admin-1' },
+      );
+
+      expect(result.results.length).toBe(1);
+      expect(result.results[0].success).toBe(true);
+      expect(result.results[0].invoice?.electricity?.previous_reading).toBe(110);
+      expect(result.results[0].invoice?.water?.previous_reading).toBe(15);
+      expect(result.results[0].invoice?.electricity?.consumption).toBe(40);
+      expect(result.results[0].invoice?.water?.consumption).toBe(5);
+      expect(result.results[0].invoice?.total_amount).toBe(25000);
+      expect(saved).toHaveBeenCalled();
+    });
+
     it('calculates invoice from room-specific quota overrides when present (AC-04, AC-05)', async () => {
       const { service, saved, invoiceModel, utilityConfigModel } = setup(true);
       utilityConfigModel.findOne.mockReturnValue(

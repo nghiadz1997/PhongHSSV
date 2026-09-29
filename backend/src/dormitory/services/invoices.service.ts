@@ -212,6 +212,21 @@ export class InvoicesService {
     });
 
     const saved = await invoice.save();
+    if (this.meterReadingModel) {
+      await this.meterReadingModel.findOneAndUpdate(
+        { room_id: dto.room_id, billing_month: dto.billing_month },
+        {
+          $set: {
+            electricity_reading: dto.electricity?.current_reading ?? 0,
+            water_reading: dto.water?.current_reading ?? 0,
+            reading_date: readingDate,
+            occupant_count: occupantCount,
+            roster_entry_ids: rosterEntryIds,
+          },
+        },
+        { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
+      ).exec();
+    }
     dormitoryInvoiceEventEmitter.emit('dormitory_invoice_event', {
       kind: 'utility',
       action: 'created',
@@ -326,6 +341,20 @@ export class InvoicesService {
     }
 
     const saved = await invoice.save();
+    if (this.meterReadingModel && invoice.room_id && invoice.billing_month) {
+      await this.meterReadingModel.findOneAndUpdate(
+        { room_id: invoice.room_id, billing_month: invoice.billing_month },
+        {
+          $set: {
+            electricity_reading: electricity.current_reading ?? 0,
+            water_reading: water.current_reading ?? 0,
+            reading_date: readingDate,
+            occupant_count: occupantCount,
+          },
+        },
+        { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
+      ).exec();
+    }
     dormitoryInvoiceEventEmitter.emit('dormitory_invoice_event', {
       kind: 'utility',
       action: 'updated',
@@ -356,11 +385,37 @@ export class InvoicesService {
       .populate('student_id', 'student_code full_name')
       .exec();
 
-    // Tìm hóa đơn gần nhất của phòng để lấy chỉ số cũ
+    // Tìm hóa đơn gần nhất trước kỳ này (hoặc hóa đơn gần nhất nếu không truyền kỳ)
+    const invoiceFilter: any = { room_id: roomId };
+    if (billingMonth) {
+      invoiceFilter.billing_month = { $lt: billingMonth };
+    }
     const lastInvoice = await this.invoiceModel
-      .findOne({ room_id: roomId })
-      .sort({ reading_date: -1, createdAt: -1 })
+      .findOne(invoiceFilter)
+      .sort({ billing_month: -1, reading_date: -1, createdAt: -1 })
       .exec();
+
+    let lastElec = lastInvoice?.electricity?.current_reading || 0;
+    let lastWater = lastInvoice?.water?.current_reading || 0;
+
+    if (this.meterReadingModel) {
+      const readingFilter: any = { room_id: roomId };
+      if (billingMonth) {
+        readingFilter.billing_month = { $lt: billingMonth };
+      }
+      const lastReading = await this.meterReadingModel
+        .findOne(readingFilter)
+        .sort({ billing_month: -1, reading_date: -1 })
+        .exec();
+      if (lastReading) {
+        if (lastReading.electricity_reading !== undefined && lastReading.electricity_reading !== null) {
+          lastElec = lastReading.electricity_reading;
+        }
+        if (lastReading.water_reading !== undefined && lastReading.water_reading !== null) {
+          lastWater = lastReading.water_reading;
+        }
+      }
+    }
 
     const config = await this.getUtilityConfig();
     const effectiveTariffs = this.resolveEffectiveTariff(config, roomId);
@@ -375,8 +430,8 @@ export class InvoicesService {
         student_code: r.student_code,
       })),
       last_readings: {
-        electricity: lastInvoice?.electricity?.current_reading || 0,
-        water: lastInvoice?.water?.current_reading || 0,
+        electricity: lastElec,
+        water: lastWater,
       },
       effective_tariffs: effectiveTariffs,
     };
@@ -1293,8 +1348,12 @@ export class InvoicesService {
     }> = [];
 
     const now = new Date();
-    const dueDate = config.payment_deadline && new Date(config.payment_deadline) >= now
+    let dueDate = config.payment_deadline && new Date(config.payment_deadline) >= now
       ? new Date(config.payment_deadline) : undefined;
+    if (!dueDate) {
+      const days = config.configured_collection_days && config.configured_collection_days > 0 ? config.configured_collection_days : 7;
+      dueDate = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+    }
 
     for (const item of dto.readings || []) {
       let meterPayload: {
@@ -1346,13 +1405,44 @@ export class InvoicesService {
           const lastInvoice = await this.invoiceModel
             .findOne({
               room_id: item.room_id,
-              billing_month: { $ne: dto.billing_month },
+              billing_month: { $lt: dto.billing_month },
             })
             .sort({ billing_month: -1, reading_date: -1, createdAt: -1 })
             .exec();
 
           prevElec = lastInvoice?.electricity?.current_reading ?? 0;
           prevWater = lastInvoice?.water?.current_reading ?? 0;
+
+          if (this.meterReadingModel) {
+            const lastReading = await this.meterReadingModel
+              .findOne({
+                room_id: item.room_id,
+                billing_month: { $lt: dto.billing_month },
+              })
+              .sort({ billing_month: -1, reading_date: -1 })
+              .exec();
+            if (lastReading) {
+              if (lastReading.electricity_reading !== undefined && lastReading.electricity_reading !== null) {
+                prevElec = lastReading.electricity_reading;
+              }
+              if (lastReading.water_reading !== undefined && lastReading.water_reading !== null) {
+                prevWater = lastReading.water_reading;
+              }
+            }
+          }
+        }
+
+        if (item.previous_electricity_reading !== undefined && item.previous_electricity_reading !== null) {
+          const customPrevElec = Number(item.previous_electricity_reading);
+          if (!isNaN(customPrevElec) && customPrevElec >= 0) {
+            prevElec = customPrevElec;
+          }
+        }
+        if (item.previous_water_reading !== undefined && item.previous_water_reading !== null) {
+          const customPrevWater = Number(item.previous_water_reading);
+          if (!isNaN(customPrevWater) && customPrevWater >= 0) {
+            prevWater = customPrevWater;
+          }
         }
 
         const currElec = Number(item.electricity_reading);
@@ -1382,7 +1472,7 @@ export class InvoicesService {
           await this.meterReadingModel.findOneAndUpdate(
             { room_id: item.room_id, billing_month: dto.billing_month },
             { $set: meterPayload },
-            { upsert: true, new: true, setDefaultsOnInsert: true },
+            { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
           ).exec();
         }
 

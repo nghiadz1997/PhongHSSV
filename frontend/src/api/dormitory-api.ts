@@ -289,6 +289,8 @@ export interface BulkMeterReadingInput {
     room_id: string;
     electricity_reading: number;
     water_reading: number;
+    previous_electricity_reading?: number;
+    previous_water_reading?: number;
     is_exempt?: boolean;
     notes?: string;
   }>;

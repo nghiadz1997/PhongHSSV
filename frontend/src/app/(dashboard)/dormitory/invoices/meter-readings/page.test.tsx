@@ -157,4 +157,76 @@ describe('MeterReadingsPage - Room Specific Utility Tariffs & Calculation Parity
     // Expect calculation preview
     expect(screen.getByText('90.000đ')).toBeInTheDocument();
   });
+
+  it('allows user to input and edit previous readings to calculate consumption and submit (AC-06)', async () => {
+    render(<MeterReadingsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Phòng 101')).toBeInTheDocument();
+    });
+
+    const prevElecInput = screen.getByLabelText('Chỉ số cũ điện Phòng 101');
+    const newElecInput = screen.getByLabelText('Số điện mới Phòng 101');
+    const prevWaterInput = screen.getByLabelText('Chỉ số cũ nước Phòng 101');
+    const newWaterInput = screen.getByLabelText('Số nước mới Phòng 101');
+
+    expect(prevElecInput).not.toBeDisabled();
+    expect(prevWaterInput).not.toBeDisabled();
+
+    // Change old electricity reading to 120 and new to 200 (consumption 80, quota 50, excess 30 * 3000 = 90,000đ)
+    fireEvent.change(prevElecInput, { target: { value: '120' } });
+    fireEvent.change(newElecInput, { target: { value: '200' } });
+
+    // Change old water reading to 15 and new to 25 (consumption 10, quota 8, excess 2 * 10000 = 20,000đ)
+    fireEvent.change(prevWaterInput, { target: { value: '15' } });
+    fireEvent.change(newWaterInput, { target: { value: '25' } });
+
+    // Total should be 90,000 + 20,000 = 110,000đ
+    expect(screen.getByText('110.000đ')).toBeInTheDocument();
+
+    // Trigger blur to save
+    fireEvent.blur(newWaterInput);
+
+    await waitFor(() => {
+      expect(dormitoryApi.invoices.saveBulkMeterReadings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          billing_month: expect.any(String),
+          readings: expect.arrayContaining([
+            expect.objectContaining({
+              room_id: 'room-1',
+              electricity_reading: 200,
+              water_reading: 25,
+              previous_electricity_reading: 120,
+              previous_water_reading: 15,
+            }),
+          ]),
+        }),
+      );
+    });
+  });
+
+  it('filters room list by room name or room code using search box', async () => {
+    render(<MeterReadingsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Phòng 101')).toBeInTheDocument();
+      expect(screen.getByText('Phòng 102')).toBeInTheDocument();
+    });
+
+    const searchInput = screen.getByLabelText('Tìm kiếm phòng');
+
+    // Filter by "102"
+    fireEvent.change(searchInput, { target: { value: '102' } });
+
+    expect(screen.queryByText('Phòng 101')).not.toBeInTheDocument();
+    expect(screen.getByText('Phòng 102')).toBeInTheDocument();
+    expect(screen.getByText(/Khớp tìm kiếm: 1 phòng/i)).toBeInTheDocument();
+
+    // Clear search
+    const clearButton = screen.getByLabelText('Xóa tìm kiếm');
+    fireEvent.click(clearButton);
+
+    expect(screen.getByText('Phòng 101')).toBeInTheDocument();
+    expect(screen.getByText('Phòng 102')).toBeInTheDocument();
+  });
 });

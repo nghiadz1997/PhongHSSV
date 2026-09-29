@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { CustomCalendar } from '@/components/calendar/CustomCalendar';
 import ConfirmModal from '@/components/modals/ConfirmModal';
-import { emptyApplicantProfile } from '@/components/dormitory/PublicDormitoryRegistrationModal';
+import { ApplicantProfileFields, compactApplicantProfile, emptyApplicantProfile } from '@/components/dormitory/PublicDormitoryRegistrationModal';
 import DormitoryRegistrationEditModal, { dateInputValue, mapActiveSemester } from '@/components/dormitory/DormitoryRegistrationEditModal';
 import DormitoryRosterImportModal from '@/components/dormitory/DormitoryRosterImportModal';
 import type { ActiveSemesterValues } from '@/components/dormitory/DormitoryRegistrationEditModal';
@@ -72,6 +72,7 @@ export const createdDateLabel = (value?: string) => {
 };
 
 type CreateForm = ActiveSemesterValues & {
+  student_code?: string;
   date_of_birth: string;
   gender: '' | 'Male' | 'Female' | 'Other';
   phone_number: string;
@@ -80,7 +81,7 @@ type CreateForm = ActiveSemesterValues & {
   applicant_profile: ApplicantProfile;
 };
 
-const emptyCreateForm = (): CreateForm => ({ semester: '', academic_year: '', date_of_birth: '', gender: '', phone_number: '', room_type: 'Thường', notes: '', applicant_profile: emptyApplicantProfile() });
+const emptyCreateForm = (): CreateForm => ({ semester: '', academic_year: '', student_code: '', date_of_birth: '', gender: '', phone_number: '', room_type: 'Thường', notes: '', applicant_profile: emptyApplicantProfile() });
 
 const dateLabel = (value: string) => {
   if (!value) return 'Chọn ngày sinh';
@@ -394,8 +395,8 @@ export default function DormitoryRosterPage() {
     return () => { cancelled = true; };
   }, [createOpen]);
   const resetCreate = () => { setStudent(null); setStudentSearch(''); setStudentOptions([]); setCreateError(''); setSemesterError(''); setActiveSemesterName(''); setCalendarOpen(false); setCreateForm(emptyCreateForm()); };
-  const selectStudent = (item: Student) => { setStudent(item); setStudentSearch(''); setStudentOptions([]); setCreateForm(current => ({ ...current, date_of_birth: dateInputValue(item.date_bir), gender: item.sex, room_type: item.sex === 'Female' ? current.room_type : 'Thường', phone_number: (item as Student & { phone_number?: string }).phone_number || '' })); };
-  const clearStudentSelection = (value: string) => { setStudent(null); setStudentSearch(value); setStudentOptions([]); setCreateForm(current => ({ ...current, date_of_birth: '', gender: '' })); };
+  const selectStudent = (item: Student) => { setStudent(item); setStudentSearch(''); setStudentOptions([]); setCreateForm(current => ({ ...current, student_code: item.student_code || '', date_of_birth: dateInputValue(item.date_bir), gender: item.sex, room_type: item.sex === 'Female' ? current.room_type : 'Thường', phone_number: (item as Student & { phone_number?: string }).phone_number || '' })); };
+  const clearStudentSelection = (value: string) => { setStudent(null); setStudentSearch(value); setStudentOptions([]); setCreateForm(current => ({ ...current, student_code: '', date_of_birth: '', gender: '' })); };
   const submitCreate = async (event: React.FormEvent) => {
     event.preventDefault(); setCreateError('');
     const birthDate = createForm.date_of_birth ? new Date(`${createForm.date_of_birth}T00:00:00`) : null;
@@ -408,11 +409,50 @@ export default function DormitoryRosterPage() {
     if (student && !createForm.phone_number.trim()) { setCreateError('Vui lòng nhập số điện thoại.'); return; }
     if (!/^[0-9+().\s-]{8,20}$/.test(createForm.phone_number.trim())) { setCreateError('Số điện thoại không hợp lệ.'); return; }
     if (!student) {
-      try { setCreateSaving(true); await dormitoryApi.roster.create({ full_name: temporaryName, date_of_birth: createForm.date_of_birth, gender: createForm.gender as Exclude<CreateForm['gender'], ''>, phone_number: createForm.phone_number.trim(), room_type: createForm.gender === 'Female' ? createForm.room_type : 'Thường', notes: createForm.notes || undefined }); toast.success('Đã thêm vào Danh sách KTX'); setCreateOpen(false); resetCreate(); reset(); await load(true, 1); } catch (err: any) { setCreateError(err?.message || 'Không thể thêm vào Danh sách KTX.'); } finally { setCreateSaving(false); }
+      try {
+        setCreateSaving(true);
+        await dormitoryApi.roster.create({
+          full_name: temporaryName,
+          student_code: createForm.student_code?.trim() || undefined,
+          date_of_birth: createForm.date_of_birth,
+          gender: createForm.gender as Exclude<CreateForm['gender'], ''>,
+          phone_number: createForm.phone_number.trim(),
+          room_type: createForm.gender === 'Female' ? createForm.room_type : 'Thường',
+          notes: createForm.notes || undefined,
+          applicant_profile: compactApplicantProfile(createForm.applicant_profile),
+        });
+        toast.success('Đã thêm vào Danh sách KTX');
+        setCreateOpen(false);
+        resetCreate();
+        reset();
+        await load(true, 1);
+      } catch (err: any) {
+        setCreateError(err?.message || 'Không thể thêm vào Danh sách KTX.');
+      } finally {
+        setCreateSaving(false);
+      }
       return;
     }
-    const payload: CreateDormitoryRosterEntryInput = { student_id: student._id, phone_number: createForm.phone_number.trim(), room_type: createForm.room_type, notes: createForm.notes || undefined };
-    try { setCreateSaving(true); await dormitoryApi.roster.create(payload); toast.success('Đã thêm vào Danh sách KTX'); setCreateOpen(false); resetCreate(); reset(); await load(true, 1); } catch (err: any) { setCreateError(err?.message || 'Không thể thêm vào Danh sách KTX.'); } finally { setCreateSaving(false); }
+    const payload: CreateDormitoryRosterEntryInput = {
+      student_id: student._id,
+      phone_number: createForm.phone_number.trim(),
+      room_type: createForm.room_type,
+      notes: createForm.notes || undefined,
+      applicant_profile: compactApplicantProfile(createForm.applicant_profile),
+    };
+    try {
+      setCreateSaving(true);
+      await dormitoryApi.roster.create(payload);
+      toast.success('Đã thêm vào Danh sách KTX');
+      setCreateOpen(false);
+      resetCreate();
+      reset();
+      await load(true, 1);
+    } catch (err: any) {
+      setCreateError(err?.message || 'Không thể thêm vào Danh sách KTX.');
+    } finally {
+      setCreateSaving(false);
+    }
   };
   const reset = () => { setPage(1); setSelected([]); mobilePageRef.current = 1; mobileHasMoreRef.current = true; setMobileHasMore(true); setMobileLoadError(false); queryGenerationRef.current += 1; rosterRequestRef.current += 1; };
   const load = useCallback(async (background = false, requestedPage = page) => {
@@ -687,6 +727,7 @@ export default function DormitoryRosterPage() {
                 {!student && studentSearch.trim() && <p className="mt-1 px-1 text-xs text-slate-500">Không chọn kết quả: hồ sơ chưa liên kết.</p>}
                 {studentOptions.length > 0 && <div className="absolute z-10 mt-1 max-h-48 w-full overflow-auto rounded-xl border border-white/80 bg-white shadow-xl">{studentOptions.map(item => <Button variant="ghost" type="button" key={item._id} onClick={() => selectStudent(item)} className="h-auto w-full justify-start rounded-none px-3 py-2 text-left text-sm"><span className="font-semibold">{item.student_code} — {item.full_name}</span><span className="ml-2 text-xs text-slate-500">{typeof item.class_id === 'object' ? item.class_id?.class_name : ''}</span></Button>)}</div>}
               </div>
+              {!student && <Input label="Mã SV" value={createForm.student_code || ''} onChange={e => setCreateForm(f => ({ ...f, student_code: e.target.value }))} placeholder="Nhập mã sinh viên (nếu có)" />}
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="flex w-full flex-col gap-1.5">
                   <label className="flex items-center gap-1 px-1 text-[13px] font-bold text-[#1E293B]">Ngày sinh <span className="text-red-500">*</span></label>
@@ -718,6 +759,7 @@ export default function DormitoryRosterPage() {
               <div className="space-y-1.5"><label className="flex items-center gap-1 px-1 text-[13px] font-bold text-[#1E293B]">Loại phòng</label><div className="hidden lg:block"><Select value={createForm.room_type} disabled={createForm.gender !== 'Female'} onValueChange={value => setCreateForm(f => ({ ...f, room_type: value as CreateForm['room_type'] }))}><SelectTrigger aria-label="Loại phòng" className="w-full"><SelectValue /></SelectTrigger><SelectContent className="w-[calc(100vw-2rem)] max-w-[280px]"><SelectItem value="Thường">Thường</SelectItem><SelectItem value="Máy lạnh">Máy lạnh (Ưu tiên cho nữ)</SelectItem></SelectContent></Select></div><div className="lg:hidden"><DormitoryChoicePopover ariaLabel="Loại phòng" disabled={createForm.gender !== 'Female'} value={createForm.room_type} options={[{ value: 'Thường', label: 'Thường' }, { value: 'Máy lạnh', label: 'Máy lạnh (Ưu tiên cho nữ)' }]} onValueChange={value => setCreateForm(f => ({ ...f, room_type: value as CreateForm['room_type'] }))} /></div></div>
               <Input label="Ghi chú" multiline rows={3} value={createForm.notes} onChange={e => setCreateForm(f => ({ ...f, notes: e.target.value }))} />
             </section>
+            <ApplicantProfileFields value={createForm.applicant_profile} onChange={value => setCreateForm(f => ({ ...f, applicant_profile: value }))} className="col-span-full" />
           </div>
           {(createError || semesterError) && <p role="alert" aria-live="polite" className="text-sm text-red-600">{createError || semesterError}</p>}
           <DialogFooter className="mt-2 gap-2 border-t border-white/50 pt-4 sm:gap-0"><Button type="button" variant="outline" onClick={() => setCreateOpen(false)} disabled={createSaving} className="w-full sm:w-auto">Hủy</Button><Button type="submit" disabled={createSaving || semesterLoading || Boolean(semesterError) || !createForm.semester} className="w-full sm:w-auto">{createSaving ? 'Đang lưu…' : 'Tạo đăng ký'}</Button></DialogFooter>
