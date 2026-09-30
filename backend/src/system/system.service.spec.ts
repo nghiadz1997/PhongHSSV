@@ -477,7 +477,7 @@ describe('SystemService', () => {
       path.resolve(__dirname, './system.service.ts'),
       'utf8',
     );
-    const dashboardSource = source.slice(source.indexOf('async getDashboardMetrics'));
+    const dashboardSource = source.replace(/\r\n/g, '\n').slice(source.indexOf('async getDashboardMetrics'));
     expect(dashboardSource).toContain('studentAttentionCount');
     expect(dashboardSource).toContain("$ifNull: ['$quantity', 1]");
     expect(dashboardSource).toContain('totalOccurrences: { $gte: 3 }');

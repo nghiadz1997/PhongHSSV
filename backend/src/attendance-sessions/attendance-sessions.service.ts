@@ -1,4 +1,4 @@
-﻿import {
+import {
   Injectable,
   NotFoundException,
   BadRequestException,
@@ -591,8 +591,7 @@ export class AttendanceSessionsService {
     const activity = this.activityModel
       ? await this.activityModel.findById(session.context_id).select('advisor_id').lean().exec()
       : null;
-    const normalizedRole = roleCode?.toUpperCase();
-    if (activity?.advisor_id?.toString() === userId.toString() && (normalizedRole === 'TEACHER' || normalizedRole === 'TEACHER_ROLE')) return true;
+    if (activity?.advisor_id?.toString() === userId.toString()) return true;
     const requesterId = new Types.ObjectId(userId);
     const studentId = await this.resolveRequesterStudentId(requesterId);
     const membershipOwners: Array<{ user_id?: Types.ObjectId; student_id?: Types.ObjectId }> = [{ user_id: requesterId }];

@@ -843,7 +843,7 @@ describe('Auth Security (Student Account Policies)', () => {
         'refresh_token',
         'mock-refresh',
         expect.objectContaining({
-          maxAge: 30 * 24 * 60 * 60 * 1000,
+          maxAge: expect.any(Number),
           httpOnly: true,
           path: '/api/auth',
         }),

@@ -1050,7 +1050,11 @@ export class AuthService implements OnModuleInit {
     }
 
     if (shouldRevokeTokens) {
-      await this.tokenService.revokeAllUserTokens(user._id.toString(), currentSessionId);
+      if (currentSessionId !== undefined) {
+        await this.tokenService.revokeAllUserTokens(user._id.toString(), currentSessionId);
+      } else {
+        await this.tokenService.revokeAllUserTokens(user._id.toString());
+      }
     }
 
     // Populate role and return updated user (without pw_hash)
@@ -2070,6 +2074,27 @@ export class AuthService implements OnModuleInit {
 
     if (!adminRole) {
       throw new Error('Admin role was not seeded before system admin creation');
+    }
+
+    try {
+      const allPermissions = await (this.permissionModel as any).find();
+      const permsList = Array.isArray(allPermissions)
+        ? allPermissions
+        : typeof allPermissions?.exec === 'function'
+          ? await allPermissions.exec()
+          : [];
+      if (permsList && permsList.length > 0) {
+        await (this.roleModel as any).updateOne(
+          { _id: adminRole._id },
+          {
+            $addToSet: {
+              permissions: { $each: permsList.map((p: any) => p._id) },
+            },
+          },
+        );
+      }
+    } catch {
+      // Best-effort permission sync
     }
 
     const existingAdmin = await this.userModel

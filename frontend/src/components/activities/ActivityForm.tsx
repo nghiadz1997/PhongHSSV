@@ -224,9 +224,14 @@ export default function ActivityForm({ initialData, onSubmit, onCancel, saving =
       }
     };
 
-    const normalizedPayload = formData.advisor_id === '__DEFAULT_ADMIN__'
-      ? { ...payload, ...(isCreateMode ? {} : { advisor_id: null }) }
-      : payload;
+    const normalizedPayload: any = { ...payload };
+    if (!formData.advisor_id || formData.advisor_id === '__DEFAULT_ADMIN__') {
+      if (isCreateMode) {
+        delete normalizedPayload.advisor_id;
+      } else {
+        normalizedPayload.advisor_id = null;
+      }
+    }
     onSubmit(normalizedPayload);
     setUploading(false);
   };

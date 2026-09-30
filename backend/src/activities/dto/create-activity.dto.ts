@@ -9,9 +9,10 @@ import {
   IsDate,
   ValidateNested,
   Min,
+  ValidateIf,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 
 export class ActivitySettingsDto {
   @ApiPropertyOptional({ description: 'Require an active registration before attendance', default: true })
@@ -229,7 +230,9 @@ export class CreateActivityDto {
 
   @ApiPropertyOptional({ description: 'Advisor (teacher) user ID; defaults to the creating administrator when omitted' })
   @IsOptional()
-  @IsMongoId()
+  @Transform(({ value }) => (!value || value === '__DEFAULT_ADMIN__' ? undefined : value))
+  @ValidateIf((o) => o.advisor_id !== null && o.advisor_id !== undefined && o.advisor_id !== '' && o.advisor_id !== '__DEFAULT_ADMIN__')
+  @IsMongoId({ message: 'advisor_id must be a mongodb id' })
   advisor_id?: string | null;
 
   @ApiPropertyOptional({ description: 'President (student) ID' })

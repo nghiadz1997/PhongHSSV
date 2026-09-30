@@ -848,7 +848,7 @@ export default function ActivityDetailPage() {
               currentStudentId={normalizeEntityId(studentMembership?.student_id) || user?.studentId || ''}
               attendance={attendance}
               canAdministerGrants={canAdministerAttendanceGrants}
-              allowedMethods={isAdmin ? ['qr', 'proximity', 'manual_class'] : isPresident && !isAssignedTeacher ? ['qr', 'proximity'] : delegatedMethods}
+              allowedMethods={isAdmin || isAssignedTeacher ? ['qr', 'proximity', 'manual_class'] : isPresident ? ['qr', 'proximity'] : delegatedMethods}
               isManualClassChooser={isAdminOrAdvisor}
               isAdmin={isAdmin}
               onAttendanceCompleted={loadActivityData}
@@ -1081,7 +1081,11 @@ function ActivityAttendanceTab({
             </Button>}
           </div>
           {!attendanceWindowOpen && (
-            <p className="mt-3 text-xs font-semibold text-amber-700">Chỉ có thể mở điểm danh trong khung giờ của buổi sinh hoạt.</p>
+            <p className="mt-3 text-xs font-semibold text-amber-700">
+              {!todaySchedule
+                ? 'Hoạt động chưa có lịch sinh hoạt trong ngày hôm nay. Vui lòng tạo lịch sinh hoạt ở tab "Lịch hoạt động" trước khi mở điểm danh.'
+                : 'Chỉ có thể mở điểm danh trong khung giờ của buổi sinh hoạt hôm nay.'}
+            </p>
           )}
         </div>
       )}

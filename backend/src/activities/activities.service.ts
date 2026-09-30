@@ -161,13 +161,15 @@ export class ActivitiesService {
   }
 
   private async validateAdvisor(advisorId: string): Promise<void> {
-    const user = await this.userModel.findById(advisorId).populate('role').exec();
+    const user = await this.userModel.findById(advisorId).populate('role').populate('roles').exec();
     if (!user) {
       throw new BadRequestException('Cố vấn được chọn không tồn tại trong hệ thống');
     }
     const userRole = user.role as any;
-    if (!userRole || userRole.role_code !== 'TEACHER') {
-      throw new BadRequestException('Người dùng được chọn làm cố vấn phải có vai trò Giảng viên (TEACHER)');
+    const isTeacher = userRole?.role_code === 'TEACHER' || (user as any).roles?.some((r: any) => r.role_code === 'TEACHER');
+    const isAdmin = isAdminUser(user);
+    if (!isTeacher && !isAdmin) {
+      throw new BadRequestException('Người dùng được chọn làm cố vấn phải có vai trò Giảng viên (TEACHER) hoặc Quản trị viên (ADMIN)');
     }
   }
 
@@ -189,9 +191,11 @@ export class ActivitiesService {
       }
     }
 
-    const advisorId = dto.advisor_id || (requester && isAdminUser(requester) ? userId : undefined);
+    const advisorId = (dto.advisor_id && Types.ObjectId.isValid(dto.advisor_id))
+      ? dto.advisor_id
+      : (requester && isAdminUser(requester) ? userId : undefined);
     if (!advisorId) throw new ForbiddenException('An administrator must be the default responsible account when no teacher is selected.');
-    if (dto.advisor_id) {
+    if (dto.advisor_id && Types.ObjectId.isValid(dto.advisor_id)) {
       await this.validateAdvisor(dto.advisor_id);
     }
 
